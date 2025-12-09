@@ -1,202 +1,300 @@
-# Kai – Cross-Platform FRPC Wrapper
+# Kai – FRP-Based Cross-Platform Tunneling Client
 
-Kai is a cross-platform tunneling client written in Go.
-It wraps the `frpc` executable and embeds the appropriate binary for each platform using Go build tags.
-Kai provides a simplified CLI for creating HTTP subdomain tunnels and TCP tunnels to an FRP server.
+Kai is a cross-platform tunneling client written in Go.  
+It embeds the [FRP](https://github.com/fatedier/frp) binary inside the executable and provides a simplified CLI for creating HTTP and TCP tunnels to a self-hosted FRPS server.
 
-The goal is to offer a minimal, self-contained client similar to ngrok, but powered by a user-hosted FRP server.
+Kai is intended as a lightweight, self-contained alternative to tools like ngrok, while giving users complete control of the infrastructure.
 
----
+This document explains:
 
-## Overview
-
-Kai embeds platform-specific `frpc` binaries directly into the compiled executable.
-At runtime, Kai:
-
-1. Creates a temporary working directory.
-2. Extracts the embedded `frpc` binary to the filesystem.
-3. Generates a temporary `frpc.toml` configuration.
-4. Executes the embedded `frpc` with the generated configuration.
-5. Cleans up the temporary files on exit.
-
-This allows users to run Kai without installing `frpc` manually.
-
-## [FRP](https://github.com/fatedier/frp)
-
-FRP is being used to connect the client to the server and handle proxy connections for the
-given domain.
-
-One can reference the frpc.toml and frps.toml to see how the client and server are configured.
+1. How the server (FRPS) is configured  
+2. Required DNS setup  
+3. How the Kai client embeds and launches FRPC  
+4. How HTTP and TCP tunnels work end-to-end  
+5. How to build and use the system  
 
 ---
 
-## Project Structure
+# 1. System Overview
 
-```
-.
-├── embed.darwin.go          # macOS frpc embed (build-tagged)
-├── embed.linux.go           # Linux frpc embed (build-tagged)
-├── embed.windows.go         # Windows frpc embed (build-tagged)
-│   // Binaries can be download from fatedier/frp
-├── frpc_darwin_amd64        # local binary used for embedding (not committed)
-├── frpc_linux_amd64         # local binary used for embedding (not committed)
-├── frpc_windows_amd64.exe   # local binary used for embedding (not committed)
-│
-├── index.go                 # main application source
-├── go.mod
-└── kai                      # compiled binary (not committed)
-```
+Kai consists of two components:
 
-The FRPC binaries are intentionally excluded from Git.
-During a build, they must exist in the project directory so that `go:embed` can include them.
+1. **FRPS (server)** running on a publicly accessible machine  
+2. **Kai (client)** which embeds FRPC and establishes tunnels
 
----
+Tunnel workflow:
 
-## Embedding Mechanism
+- Kai generates an FRPC configuration at runtime  
+- It extracts an embedded FRPC binary for the current OS  
+- FRPC connects to FRPS using a persistent connection  
+- FRPS exposes public endpoints such as:  
+  - `https://demo.<YOUR DOMAIN>` for HTTP tunnels  
+  - `<YOUR DOMAIN>:<REMOTE PORT>` for TCP tunnels  
+- Traffic is routed back to the local machine running Kai  
 
-Go build tags ensure that only the correct FRPC binary is embedded for the target platform.
-
-Example (Linux):
-
-```go
-//go:build linux
-
-package main
-
-import _ "embed"
-
-//go:embed frpc_linux_amd64
-var frpcBinary []byte
-```
-
-The Windows and macOS versions follow the same pattern with different build tags and filenames.
+This allows developers or internal users to expose services without configuring FRPC directly.
 
 ---
 
-## Building Kai
+# 2. Server Requirements (FRPS)
 
-### Linux Build
+You must host FRPS on a public server (VPS, cloud instance, or bare metal).
+
+Typical configuration:
 
 ```
-GOOS=linux GOARCH=amd64 go build -o kai .
+Hostname: <YOUR DOMAIN>
+IP:       <YOUR SERVER IP>
+FRP:      Same version for FRPS and FRPC
 ```
 
-Requires `frpc_linux_amd64` to be present in the project directory.
+### Required open ports
+
+| Port | Description |
+|------|-------------|
+| 7000 | FRPS bind port (client connections) |
+| 80   | HTTP vHost (public HTTP tunnels) |
+| 443  | HTTPS vHost (public HTTPS tunnels) |
+| Optional: 8080 | Internal vHost if using a reverse proxy |
+
+[!NOTE]
+FRPS can be run behind a reverse proxy such as Nginx or Caddy to provide TLS termination and additional features.
 
 ---
 
-### macOS Build
+## 2.1 Example `frps.toml`
 
 ```
-GOOS=darwin GOARCH=amd64 go build -o kai .
+bindPort = 7000
+
+vhostHTTPPort  = 80
+vhostHTTPSPort = 443
+
+subDomainHost = "<YOUR DOMAIN>"
+
+[auth]
+method = "token"
+token  = "<YOUR FRP TOKEN>"
+
+[webServer]
+addr = "0.0.0.0"
+port = 7500
+user = "admin"
+password = "adminpass"
 ```
 
-Requires `frpc_darwin_amd64` to be present.
+Key field:
+
+```
+subDomainHost = "<YOUR DOMAIN>"
+```
+
+This enables subdomain-based HTTP tunnels such as:
+
+```
+demo.<YOUR DOMAIN>
+app1.<YOUR DOMAIN>
+anything.<YOUR DOMAIN>
+```
 
 ---
 
-### Windows Build
+# 3. DNS Configuration
+
+Your DNS provider should contain:
 
 ```
-GOOS=windows GOARCH=amd64 go build -o kai.exe .
+A   <YOUR DOMAIN>          <YOUR SERVER IP>
+A   *.<YOUR DOMAIN>        <YOUR SERVER IP>
 ```
 
-Requires `frpc_windows_amd64.exe` to be present.
+The wildcard record enables dynamic subdomains to be created automatically.
 
 ---
 
-## Command Usage
+# 4. Kai Client Architecture
 
-### HTTP Tunnel
+Kai embeds FRPC using Go's `//go:embed` feature with build tags.
 
-Expose a local HTTP service using a subdomain.
+### Build-time
+
+- Linux build embeds `frpc_linux_amd64`
+- macOS build embeds `frpc_darwin_amd64`
+- Windows build embeds `frpc_windows_amd64.exe`
+
+### Runtime
+
+1. CLI arguments are parsed  
+2. A temporary directory is created  
+3. The embedded FRPC binary is written to the temporary directory  
+4. Kai generates a temporary `frpc.toml` configuration  
+5. Kai executes FRPC with this configuration  
+6. SIGINT (Ctrl+C) is forwarded to FRPC  
+7. Temporary files are removed after exit  
+
+This provides a single portable executable per OS.
+
+---
+
+# 5. Tunnel Operation Flow
+
+## 5.1 HTTP Subdomain Tunnel
+
+Example command:
 
 ```
 kai --subdomain demo -p 3000
 ```
 
-This maps:
+Flow:
 
 ```
-localhost:3000  -->  demo.p.ranax.co
+Browser → demo.<YOUR DOMAIN>:80
+                ↓
+             FRPS
+                ↓
+         FRPC (Kai)
+                ↓
+       Local service (localhost:3000)
 ```
 
-Requires your FRP server to be configured with:
+Detailed:
 
-```
-subDomainHost = "p.ranax.co"
-```
+1. User or browser accesses `demo.<YOUR DOMAIN>`.
+2. DNS resolves to your FRPS server.
+3. FRPS reads the HTTP Host header.
+4. FRPS finds a matching FRPC session that registered `subdomain = "demo"`.
+5. Traffic is forwarded through the FRPC tunnel to `localhost:3000`.
 
 ---
 
-### TCP Tunnel
+## 5.2 TCP Tunnel
 
-Expose a local TCP port (for example SSH).
+Example:
 
 ```
 kai --type tcp -p 22 --remote-port 22022
 ```
 
-Remote access would be:
+Flow:
 
 ```
-ssh user@p.ranax.co -p 22022
+Client → <YOUR DOMAIN>:22022
+                 ↓
+               FRPS
+                 ↓
+           FRPC (Kai)
+                 ↓
+   Local machine running service
+```
+
+Typical use cases include SSH, databases, or custom protocols.
+
+---
+
+# 6. Project Structure
+
+```
+embed.linux.go          # Linux frpc embed
+embed.windows.go        # Windows frpc embed
+embed.darwin.go         # macOS frpc embed
+│
+frpc_linux_amd64        # Local binary (not committed)
+frpc_windows_amd64.exe  # Local binary (not committed)
+frpc_darwin_amd64       # Local binary (not committed)
+│
+index.go                # Main Kai application
+go.mod
+kai (compiled binary)   # Not committed
+```
+
+The FRPC binaries must exist locally during build but are excluded from version control.
+
+---
+
+# 7. Building Kai
+
+## Linux Build
+
+```
+GOOS=linux GOARCH=amd64 go build -o kai .
+```
+
+Requires `frpc_linux_amd64`.
+
+## macOS Build
+
+```
+GOOS=darwin GOARCH=amd64 go build -o kai .
+```
+
+Requires `frpc_darwin_amd64`.
+
+## Windows Build
+
+```
+GOOS=windows GOARCH=amd64 go build -o kai.exe .
+```
+
+Requires `frpc_windows_amd64.exe`.
+
+---
+
+# 8. Usage Examples
+
+## HTTP Tunnel
+
+```
+kai --subdomain demo -p 3000
+```
+
+Exposes:
+
+```
+localhost:3000 → https://demo.<YOUR DOMAIN>
+```
+
+## TCP Tunnel
+
+```
+kai --type tcp -p 22 --remote-port 22022
+```
+
+Exposes:
+
+```
+localhost:22 → <YOUR DOMAIN>:22022
+```
+
+## Custom server address
+
+```
+kai --server <YOUR DOMAIN> --server-port 7000 --subdomain test -p 8080
 ```
 
 ---
 
-## Available Flags
+# 9. Authentication
 
-| Flag            | Description                                           |
-| --------------- | ----------------------------------------------------- |
-| `--subdomain`   | Subdomain for HTTP tunnels (required for HTTP mode)   |
-| `--type`        | Tunnel type. Options: `http` (default), `tcp`         |
-| `--port`, `-p`  | Local port to forward                                 |
-| `--remote-port` | Remote FRP port (required for TCP mode)               |
-| `--server`      | FRPS server address (default: `p.ranax.co`)           |
-| `--server-port` | FRPS bind port (default: `7000`)                      |
-| `--local-host`  | Local host IP (default: `127.0.0.1`)                  |
-| `--token`       | FRP authentication token (defaults to built-in token) |
+Kai uses a default token defined inside the source code unless overridden using:
 
----
+```
+--token <TOKEN>
+```
 
-## Execution Flow
+This must match the value in `frps.toml`:
 
-1. User runs a Kai command.
-2. Kai parses CLI flags and validates input.
-3. A temporary directory is created under the OS temp path.
-4. The correct embedded `frpc` binary is written to this directory.
-5. A temporary `frpc.toml` file is generated based on the CLI parameters.
-6. Kai executes the embedded `frpc` with `exec.Command`.
-7. On SIGINT (Ctrl+C), Kai terminates the `frpc` child process.
-8. Temporary files are removed on exit.
+```
+[auth]
+method = "token"
+token  = "<YOUR FRP TOKEN>"
+```
 
 ---
 
-## System Requirements
+# 10. System Summary
 
-* Go 1.21+
-* FRP server (frps) configured with:
-
-  * token-based authentication
-  * `subDomainHost` enabled for HTTP tunnels
-  * vhost HTTP/HTTPS ports open and listening
-
----
-
-## Intended Usage
-
-Kai is designed for:
-
-* developers needing quick tunnels
-* internal tools
-* private infrastructure
-* self-hosted alternatives to ngrok or Cloudflare Tunnel
-
-Kai is not intended to replace the full FRP client but to provide a simplified wrapper for specific common workflows.
-
----
-
-## License
-
-Specify a license if applicable (MIT, Apache, etc.).
+- FRPS acts as the central routing point for public traffic  
+- Kai simplifies FRPC usage by embedding the binary and generating configs dynamically  
+- DNS wildcard entries allow dynamic subdomain HTTP routing  
+- The system provides a self-contained tunneling solution without external dependencies  
