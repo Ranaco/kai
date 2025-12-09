@@ -1,0 +1,16 @@
+bindPort = 7000
+
+vhostHTTPPort = 8080
+vhostHTTPSPort = 8443
+subDomainHost = "<your-domain-name>"
+
+[auth]
+method = "token"
+token  = "<your-fprc-pass>"
+
+[webServer]                  # optional dashboard
+addr     = "0.0.0.0" 
+port     = 7500
+user     = "admin"
+password = "your-dashboard-pass"
+
