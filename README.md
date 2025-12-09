@@ -15,7 +15,7 @@ This document explains:
 
 ---
 
-# 1. System Overview
+## 1. System Overview
 
 Kai consists of two components:
 
@@ -36,7 +36,7 @@ This allows developers or internal users to expose services without configuring 
 
 ---
 
-# 2. Server Requirements (FRPS)
+## 2. Server Requirements (FRPS)
 
 You must host FRPS on a public server (VPS, cloud instance, or bare metal).
 
@@ -48,7 +48,7 @@ IP:       <YOUR SERVER IP>
 FRP:      Same version for FRPS and FRPC
 ```
 
-### Required open ports
+#### Required open ports
 
 | Port | Description |
 |------|-------------|
@@ -62,7 +62,7 @@ FRPS can be run behind a reverse proxy such as Nginx or Caddy to provide TLS ter
 
 ---
 
-## 2.1 Example `frps.toml`
+### 2.1 Example `frps.toml`
 
 ```
 bindPort = 7000
@@ -99,7 +99,7 @@ anything.<YOUR DOMAIN>
 
 ---
 
-# 3. DNS Configuration
+## 3. DNS Configuration
 
 Your DNS provider should contain:
 
@@ -112,17 +112,17 @@ The wildcard record enables dynamic subdomains to be created automatically.
 
 ---
 
-# 4. Kai Client Architecture
+## 4. Kai Client Architecture
 
 Kai embeds FRPC using Go's `//go:embed` feature with build tags.
 
-### Build-time
+#### Build-time
 
 - Linux build embeds `frpc_linux_amd64`
 - macOS build embeds `frpc_darwin_amd64`
 - Windows build embeds `frpc_windows_amd64.exe`
 
-### Runtime
+#### Runtime
 
 1. CLI arguments are parsed  
 2. A temporary directory is created  
@@ -136,9 +136,9 @@ This provides a single portable executable per OS.
 
 ---
 
-# 5. Tunnel Operation Flow
+## 5. Tunnel Operation Flow
 
-## 5.1 HTTP Subdomain Tunnel
+### 5.1 HTTP Subdomain Tunnel
 
 Example command:
 
@@ -168,7 +168,7 @@ Detailed:
 
 ---
 
-## 5.2 TCP Tunnel
+### 5.2 TCP Tunnel
 
 Example:
 
@@ -192,7 +192,7 @@ Typical use cases include SSH, databases, or custom protocols.
 
 ---
 
-# 6. Project Structure
+## 6. Project Structure
 
 ```
 embed.linux.go          # Linux frpc embed
@@ -212,9 +212,9 @@ The FRPC binaries must exist locally during build but are excluded from version 
 
 ---
 
-# 7. Building Kai
+## 7. Building Kai
 
-## Linux Build
+### Linux Build
 
 ```
 GOOS=linux GOARCH=amd64 go build -o kai .
@@ -222,7 +222,7 @@ GOOS=linux GOARCH=amd64 go build -o kai .
 
 Requires `frpc_linux_amd64`.
 
-## macOS Build
+### macOS Build
 
 ```
 GOOS=darwin GOARCH=amd64 go build -o kai .
@@ -230,7 +230,7 @@ GOOS=darwin GOARCH=amd64 go build -o kai .
 
 Requires `frpc_darwin_amd64`.
 
-## Windows Build
+### Windows Build
 
 ```
 GOOS=windows GOARCH=amd64 go build -o kai.exe .
@@ -240,9 +240,9 @@ Requires `frpc_windows_amd64.exe`.
 
 ---
 
-# 8. Usage Examples
+## 8. Usage Examples
 
-## HTTP Tunnel
+### HTTP Tunnel
 
 ```
 kai --subdomain demo -p 3000
@@ -254,7 +254,7 @@ Exposes:
 localhost:3000 → https://demo.<YOUR DOMAIN>
 ```
 
-## TCP Tunnel
+### TCP Tunnel
 
 ```
 kai --type tcp -p 22 --remote-port 22022
@@ -266,7 +266,7 @@ Exposes:
 localhost:22 → <YOUR DOMAIN>:22022
 ```
 
-## Custom server address
+### Custom server address
 
 ```
 kai --server <YOUR DOMAIN> --server-port 7000 --subdomain test -p 8080
@@ -274,7 +274,7 @@ kai --server <YOUR DOMAIN> --server-port 7000 --subdomain test -p 8080
 
 ---
 
-# 9. Authentication
+## 9. Authentication
 
 Kai uses a default token defined inside the source code unless overridden using:
 
@@ -292,7 +292,7 @@ token  = "<YOUR FRP TOKEN>"
 
 ---
 
-# 10. System Summary
+## 10. System Summary
 
 - FRPS acts as the central routing point for public traffic  
 - Kai simplifies FRPC usage by embedding the binary and generating configs dynamically  
