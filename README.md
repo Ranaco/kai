@@ -290,6 +290,61 @@ method = "token"
 token  = "<YOUR FRP TOKEN>"
 ```
 
+### 9.1 Client configuration file (`config.toml`)
+
+Kai can load tunnel defaults from a TOML file so users do not need to repeat auth/server flags.
+
+Config file lookup order:
+1. Path from `KAI_CONFIG` (used only if that file exists)
+2. `./config.toml` (current working directory)
+3. `~/.kai/config.toml`
+
+If none of those files exists, Kai uses built-in defaults.
+
+Supported keys:
+
+```toml
+[forwarding]
+server = "p.ranax.co"
+server_port = 7000
+local_host = "127.0.0.1"
+
+[auth]
+token = "your-frp-token"
+```
+
+Key behavior:
+- `server` sets default value for `--server`.
+- `server_port` sets default value for `--server-port`.
+- `local_host` sets default value for `--local-host`.
+- `auth.token` sets default value for `--token`.
+- CLI flags always override file values.
+- If token is missing in both CLI and config, Kai falls back to built-in `DefaultToken`.
+- Unknown keys are ignored.
+
+Notes:
+- `server`, `server_port`, and `local_host` can be placed at top-level or under `[forwarding]`.
+- Key names are case-insensitive and treat `-` and `_` as equivalent.
+
+Example home config:
+
+```toml
+# ~/.kai/config.toml
+[forwarding]
+server = "tunnel.example.com"
+server_port = 7000
+local_host = "127.0.0.1"
+
+[auth]
+token = "replace-with-your-frp-token"
+```
+
+Example using a project-specific config:
+
+```bash
+KAI_CONFIG=./config.toml kai --subdomain demo -p 3000
+```
+
 ---
 
 ## 10. System Summary
@@ -298,3 +353,131 @@ token  = "<YOUR FRP TOKEN>"
 - Kai simplifies FRPC usage by embedding the binary and generating configs dynamically  
 - DNS wildcard entries allow dynamic subdomain HTTP routing  
 - The system provides a self-contained tunneling solution without external dependencies  
+
+---
+
+## 11. Share Command (`kai share`)
+
+`kai share` uploads either a remote URL stream or a local file and returns a share URL.
+
+### Source input modes
+
+You can provide source and provider using either flags or positional args.
+
+Flag form:
+
+```bash
+kai share --from "<url>" --provider catbox
+```
+
+```bash
+kai share --file "/path/to/file.zip" --provider catbox
+```
+
+Positional form:
+
+```bash
+kai share "<url-or-local-path>" "<provider>"
+```
+
+Rules:
+- Source must be exactly one of `--from` or `--file` (or first positional argument).
+- Provider is required (or second positional argument).
+- If both positional and flags are provided, flags win.
+
+### Built-in providers
+
+- `catbox`: uploads to `https://catbox.moe/user/api.php`
+- `generic_put`: HTTP `PUT` to `--to`
+- `generic_multipart`: HTTP multipart `POST` to `--to`
+
+Provider requirements:
+- `catbox` does not require `--to`
+- `generic_put` and `generic_multipart` require `--to`
+
+Optional Catbox auth:
+
+```bash
+export KAI_CATBOX_USERHASH="<your_catbox_userhash>"
+```
+
+### Common examples
+
+Remote URL to Catbox:
+
+```bash
+kai share "https://example.com/file.zip" catbox
+```
+
+Local file to Catbox:
+
+```bash
+kai share "/tmp/report.pdf" catbox
+```
+
+Remote URL to custom multipart endpoint:
+
+```bash
+kai share \
+  --from "https://example.com/file.zip" \
+  --provider generic_multipart \
+  --to "https://upload.example.com/upload"
+```
+
+Remote URL to custom PUT endpoint:
+
+```bash
+kai share \
+  --from "https://example.com/file.zip" \
+  --provider generic_put \
+  --to "https://upload.example.com/incoming/file.zip"
+```
+
+### Output formats
+
+Default text output:
+
+```text
+share_url=https://...
+bytes=12345
+duration=1.2s
+```
+
+JSON output:
+
+```bash
+kai share --from "https://example.com/file.zip" --provider catbox --output json
+```
+
+Example JSON:
+
+```json
+{
+  "ok": true,
+  "share_url": "https://files.catbox.moe/abc123.zip",
+  "bytes": 12345,
+  "duration_ms": 987,
+  "source": "https://example.com/file.zip",
+  "provider": "catbox"
+}
+```
+
+### Key options
+
+- `--header "Key: Value"` repeatable source request headers
+- `--cookie "k=v"` repeatable source cookies
+- `--method GET|POST` source method (default: `GET`)
+- `--max-size 2GB` transfer limit (default: `2GB`)
+- `--timeout 15m` total operation timeout
+- `--connect-timeout 15s` per-connection timeout
+- `--allow-domain example.com` repeatable source allowlist
+- `--deny-private-ip` block private/loopback/link-local target IPs (default: `true`)
+- `--progress` enable periodic progress output (default: `true`)
+- `--output text|json` (default: `text`)
+- `--verbose` verbose logs
+
+### Safety defaults
+
+- Private, loopback, link-local, and unspecified IP targets are blocked by default.
+- Source redirects are limited and revalidated.
+- Payload bytes are streamed directly and are not written to temporary files.
